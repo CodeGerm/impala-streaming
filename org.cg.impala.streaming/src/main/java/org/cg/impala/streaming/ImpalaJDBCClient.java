@@ -1,0 +1,177 @@
+package org.cg.impala.streaming;
+
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.List;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+public class ImpalaJDBCClient {
+
+	private String connectionUrl;
+
+	private Connection con;
+	private Statement stmt;
+
+	private static final Log logger = LogFactory.getLog(ImpalaJDBCClient.class);
+
+
+	public ImpalaJDBCClient(String connectionUrl, String jdbcDriverName) throws IOException, ClassNotFoundException, SQLException {
+		this.connectionUrl = connectionUrl;
+		init(connectionUrl, jdbcDriverName);
+	}
+	
+
+
+	private void init(String connectionUrl,String jdbcDriverName) throws IOException, ClassNotFoundException, SQLException {
+
+		Class.forName(jdbcDriverName);
+		con = DriverManager.getConnection(connectionUrl);
+		stmt = con.createStatement();
+
+	}
+	
+	public boolean isPartitioned(String tableName) throws SQLException{
+		ResultSet rs = null;
+		try{
+			String sqlStatement = "describe formatted "+tableName;
+			rs = stmt.executeQuery(sqlStatement);
+			while(rs.next()){
+				if(rs.getString(1).trim().equals("# Partition Information")){
+					rs.close();
+					return true;
+				}
+			}
+			rs.close();
+			return false;
+		} catch (SQLException e){
+			if(rs != null)
+				rs.close();
+			stmt.close();
+			throw e;
+		}
+	}
+	
+	public ResultSet runQueryStatement(String sqlStatement) throws SQLException{
+		logger.info("running query statement: "+sqlStatement);
+		ResultSet rs = stmt.executeQuery(sqlStatement);
+		return rs;
+	}
+
+	public void runUpdateStatement(String sqlStatement) throws SQLException{
+		logger.info("running update statement: "+sqlStatement);
+		stmt.executeUpdate(sqlStatement);
+	}
+
+	public void recoverPartition(String tableName) throws SQLException{
+		if(isPartitioned(tableName)){
+			String sqlStatement = "alter table "+tableName+" recover partitions";
+			runUpdateStatement(sqlStatement);
+		} else {
+			logger.info("table is not partitioned, use refresh instead");
+			refresh(tableName);
+		}
+		
+	}
+
+	public void refresh(String tableName) throws SQLException{
+		String sqlStatement = "refresh "+tableName;
+		runUpdateStatement(sqlStatement);
+	}
+	
+	public void invalidate(String tableName) throws SQLException{
+		String sqlStatement = "invalidate metadata "+tableName;
+		runUpdateStatement(sqlStatement);
+	}
+
+	public void dropView(String viewName) throws SQLException{
+		String sqlStatement = "drop view "+viewName;
+		runUpdateStatement(sqlStatement);
+
+	}
+
+	public void createView(String viewName, String referenceViewName, List<String> subEntity) throws SQLException{
+		String subEntityString = "";
+		for(int i=0;i<subEntity.size();i++){
+			subEntityString+=" select * from "+subEntity.get(i);
+			if(i<subEntity.size()-1)
+				subEntityString+=" union all ";
+		}
+		String sqlStatement = "create view if not exists "+viewName+" as "+subEntityString;
+		runUpdateStatement(sqlStatement);
+	}
+
+	public void dropTable(String tableName) throws SQLException{
+		String sqlStatement = "drop table "+tableName;
+		runUpdateStatement(sqlStatement);
+	}
+
+	public void createLandingTable(String tableName, String referenceTableName, String location) throws SQLException{
+		String sqlStatement = "create table if not exists "+tableName+" like "+referenceTableName+" stored as avro";
+		if(location != null)
+			sqlStatement += " location '"+location+"'";
+		runUpdateStatement(sqlStatement);
+	}
+	
+	public void createStoringTable(String tableName, String referenceTableName, String location) throws SQLException{
+		String sqlStatement = "create table if not exists "+tableName+" like "+referenceTableName+" stored as parquet";
+		if(location != null)
+			sqlStatement += " location '"+location+"'";
+		runUpdateStatement(sqlStatement);
+	}
+
+	public void compaction(String tmpTable, String persistTable) throws SQLException{
+		String sqlStatement = null;
+		if (isPartitioned(persistTable))
+			sqlStatement = "insert into "+persistTable+" [shuffle] "+"select * from "+tmpTable;
+		else
+			sqlStatement = "insert into "+persistTable+" select * from "+tmpTable;
+		runUpdateStatement(sqlStatement);
+	}
+
+	//Use Cloudera recommended COMPUTE STATS for now 
+	public void updateStats(String tableName) throws SQLException{
+		String sqlStatement = " compute incremental stats "+tableName;
+		runUpdateStatement(sqlStatement);
+	}
+
+
+	public void close() throws SQLException{
+		stmt.close();
+		con.close();
+	}
+
+	public static void main(String args[]) throws IOException, ClassNotFoundException, SQLException{
+		String connectionUrl = "jdbc:impala://localhost:21050";
+		String jdbcDriverName = "com.cloudera.impala.jdbc41.Driver";
+
+		ImpalaJDBCClient ij = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
+
+		//String sqlStatement = "select * from eventfordemo_parquet limit 100";
+		String sqlStatement = "show tables";
+		
+		System.out.println("\n=============================================");
+		System.out.println("Cloudera Impala JDBC Example");
+		System.out.println("Using Connection URL: " + ij.connectionUrl);
+		System.out.println("Running Query: " + sqlStatement);
+		
+		ResultSet rs = ij.runQueryStatement(sqlStatement);
+		int col = rs.getMetaData().getColumnCount();
+		while(rs.next()){
+			for(int i=1;i<=col;i++)
+				System.out.print(rs.getObject(i)+",");
+			System.out.println();
+		}
+		
+		ij.close();
+
+	}
+
+
+
+}
