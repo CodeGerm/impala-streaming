@@ -13,7 +13,7 @@ import org.apache.commons.logging.LogFactory;
 
 public class ImpalaJDBCClient {
 
-	private String connectionUrl;
+
 
 	private Connection con;
 	private Statement stmt;
@@ -22,7 +22,6 @@ public class ImpalaJDBCClient {
 
 
 	public ImpalaJDBCClient(String connectionUrl, String jdbcDriverName) throws IOException, ClassNotFoundException, SQLException {
-		this.connectionUrl = connectionUrl;
 		init(connectionUrl, jdbcDriverName);
 	}
 	
@@ -145,33 +144,4 @@ public class ImpalaJDBCClient {
 		stmt.close();
 		con.close();
 	}
-
-	public static void main(String args[]) throws IOException, ClassNotFoundException, SQLException{
-		String connectionUrl = "jdbc:impala://localhost:21050";
-		String jdbcDriverName = "com.cloudera.impala.jdbc41.Driver";
-
-		ImpalaJDBCClient ij = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
-
-		//String sqlStatement = "select * from eventfordemo_parquet limit 100";
-		String sqlStatement = "show tables";
-		
-		System.out.println("\n=============================================");
-		System.out.println("Cloudera Impala JDBC Example");
-		System.out.println("Using Connection URL: " + ij.connectionUrl);
-		System.out.println("Running Query: " + sqlStatement);
-		
-		ResultSet rs = ij.runQueryStatement(sqlStatement);
-		int col = rs.getMetaData().getColumnCount();
-		while(rs.next()){
-			for(int i=1;i<=col;i++)
-				System.out.print(rs.getObject(i)+",");
-			System.out.println();
-		}
-		
-		ij.close();
-
-	}
-
-
-
 }
