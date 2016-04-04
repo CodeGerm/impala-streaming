@@ -88,31 +88,33 @@ public class CompactionManager {
 		}
 	}
 
-	public synchronized void next(CompactionContext context) throws SQLException, IOException {
+	public synchronized void next(String tableName) throws SQLException, IOException {
+		CompactionContext context = managedTables.get(tableName);
+
 		if (context.getState().equals(CompactionContext.States.StateI))
 			SwitchLandingTable.run(context);
-		if (context.getState().equals(CompactionContext.States.StateII))
+		else if (context.getState().equals(CompactionContext.States.StateII))
 			MoveDataFromLandingToPersist.run(client, context);
-		if (context.getState().equals(CompactionContext.States.StateIII))
+		else if (context.getState().equals(CompactionContext.States.StateIII))
 			SwitchViewToTempTable.run(client, context);
-		if (context.getState().equals(CompactionContext.States.StateIV))
+		else if (context.getState().equals(CompactionContext.States.StateIV))
 			RecreateOldLandingTable.run(client, context);
-		if (context.getState().equals(CompactionContext.States.StateV))
+		else if (context.getState().equals(CompactionContext.States.StateV))
 			AddRecreatedLandingTableToView.run(client, context);
-		if (context.getState().equals(CompactionContext.States.StateVI))
+		else if (context.getState().equals(CompactionContext.States.StateVI))
 			SyncTwoPersistTable.run(client, context);
-		if (context.getState().equals(CompactionContext.States.StateVII))
+		else if (context.getState().equals(CompactionContext.States.StateVII))
 			RemoveLandingTableFromView.run(client, context);
+		managedTables.put(tableName, context);
 	}
 
 	public synchronized void compaction(String tableName) throws SQLException, IOException {
 		if (managedTables == null)
 			throw new IllegalStateException("manager not initialzed");
-		CompactionContext context = managedTables.get(tableName);
 		int stepNum = CompactionContext.States.values().length;
 		for (int i = 0; i < stepNum; i++) {
-			next(context);
-			managedTables.put(tableName, context);
+			next(tableName);
+			
 		}
 	}
 }
