@@ -5,6 +5,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 public class CompactionContext {
 
@@ -113,7 +114,7 @@ public class CompactionContext {
 	
 	public void saveState() throws IOException {
 		
-		Gson gson =new Gson(); 
+		Gson gson =new GsonBuilder().setPrettyPrinting().create();
 		String objectString = gson.toJson(this);
 		File stateFile = new File(stateFilePath);
 		FileWriter fw =new FileWriter(stateFile, false);

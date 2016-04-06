@@ -77,6 +77,26 @@ public class ImpalaJDBCClient {
 		}
 		
 	}
+	
+	public String getTableLocation(String tableName) throws SQLException{
+		ResultSet rs = null;
+		String location = null;
+		try{
+			String sqlStatement = "describe formatted "+tableName;
+			rs = stmt.executeQuery(sqlStatement);
+			while(rs.next()){
+				if(rs.getString(1).trim().equals("Location:"))
+					location = rs.getString(2).trim();
+			}
+			rs.close();
+		} catch (SQLException e){
+			if(rs != null)
+				rs.close();
+			stmt.close();
+			throw e;
+		}
+		return location;
+	}
 
 	public void refresh(String tableName) throws SQLException{
 		String sqlStatement = "refresh "+tableName;
@@ -139,9 +159,13 @@ public class ImpalaJDBCClient {
 		runUpdateStatement(sqlStatement);
 	}
 
+	
 
 	public void close() throws SQLException{
 		stmt.close();
 		con.close();
 	}
+	
+
+	
 }
