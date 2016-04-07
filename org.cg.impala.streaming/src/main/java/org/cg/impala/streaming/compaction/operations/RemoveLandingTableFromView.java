@@ -37,7 +37,7 @@ public class RemoveLandingTableFromView {
 		
 		context.setState(CompactionContext.States.StateI);
 		context.saveState(); 
-		logger.info("StateVII to StateVIII transition finished");
+		logger.info("StateVII to StateI transition finished");
 	}
 
 }

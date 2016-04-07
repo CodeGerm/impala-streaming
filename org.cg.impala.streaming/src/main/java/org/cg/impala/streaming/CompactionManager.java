@@ -133,11 +133,20 @@ public class CompactionManager {
 	}
 	
 	
-	public synchronized List<String> listTables() throws SQLException, IOException{
+	public  List<String> listTables() throws SQLException, IOException{
 		List<String> tables = new ArrayList<String>();
 		tables.addAll(managedTables.keySet());
 		return tables;
-		
+	}
+	
+	
+	public  String getTableState(String tableName) throws SQLException{
+		if(!managedTables.containsKey(tableName)){
+			String message =tableName + " table not exist in manager"; 
+			logger.error(message);
+			throw new IllegalArgumentException(message);
+		}	
+		return managedTables.get(tableName).getState().toString();
 	}
 
 	public synchronized void runNext(String tableName) throws SQLException, IOException {
@@ -163,16 +172,45 @@ public class CompactionManager {
 	public synchronized void compaction(String tableName) throws SQLException, IOException {
 		if (managedTables == null)
 			throw new IllegalStateException("manager not initialzed");
+		if(!managedTables.containsKey(tableName)){
+			String message =tableName + " table not exist in manager"; 
+			logger.error(message);
+			throw new IllegalArgumentException(message);
+		}	
+		
 		int stepNum = CompactionContext.States.values().length;
 		for (int i = 0; i < stepNum; i++) {
 			runNext(tableName);
-			
+			if(managedTables.get(tableName).getState().equals(CompactionContext.States.StateI))
+				break;
 		}
 	}
 	
 	public synchronized void close() throws SQLException{
 		client.close();
 	}
+	
+	public  String getLandingTable(String tableName) throws SQLException{
+		if(!managedTables.containsKey(tableName)){
+			String message =tableName + " table does not exist in manager"; 
+			logger.error(message);
+			throw new IllegalArgumentException(message);
+		}	
+		return managedTables.get(tableName).getLandingTable().getName();
+	}
+	
+	public  String getView(String tableName) throws SQLException{
+		if(!managedTables.containsKey(tableName)){
+			String message =tableName + " table does not exist in manager"; 
+			logger.error(message);
+			throw new IllegalArgumentException(message);
+		}	
+		return managedTables.get(tableName).getView().getName();
+	}
+	
+	
+
+	
 	
 	
 

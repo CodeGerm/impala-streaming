@@ -6,6 +6,9 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
@@ -24,7 +27,7 @@ public class ImpalaJDBCClient {
 	public ImpalaJDBCClient(String connectionUrl, String jdbcDriverName) throws IOException, ClassNotFoundException, SQLException {
 		init(connectionUrl, jdbcDriverName);
 	}
-	
+
 
 
 	private void init(String connectionUrl,String jdbcDriverName) throws IOException, ClassNotFoundException, SQLException {
@@ -34,7 +37,7 @@ public class ImpalaJDBCClient {
 		stmt = con.createStatement();
 
 	}
-	
+
 	public boolean isPartitioned(String tableName) throws SQLException{
 		ResultSet rs = null;
 		try{
@@ -55,7 +58,7 @@ public class ImpalaJDBCClient {
 			throw e;
 		}
 	}
-	
+
 	public ResultSet runQueryStatement(String sqlStatement) throws SQLException{
 		logger.info("running query statement: "+sqlStatement);
 		ResultSet rs = stmt.executeQuery(sqlStatement);
@@ -75,9 +78,9 @@ public class ImpalaJDBCClient {
 			logger.info("table is not partitioned, use refresh instead");
 			refresh(tableName);
 		}
-		
+
 	}
-	
+
 	public String getTableLocation(String tableName) throws SQLException{
 		ResultSet rs = null;
 		String location = null;
@@ -98,18 +101,49 @@ public class ImpalaJDBCClient {
 		return location;
 	}
 
+
+	public List<String> getPartitionedColumn(String tableName) throws SQLException{
+		List<String> columns = new ArrayList<String>();
+		ResultSet rs = null;
+		try{
+			boolean searchingIndicator = false;
+			String sqlStatement = "describe formatted "+tableName;
+			rs = stmt.executeQuery(sqlStatement);
+			while(rs.next()){
+				String firstCol = rs.getString(1);
+				if(firstCol.trim().equals("# Partition Information"))
+					searchingIndicator = true;
+				else if(searchingIndicator){
+					if(firstCol.trim().equals("# Detailed Table Information"))
+						searchingIndicator = false;
+					else if(!firstCol.isEmpty()&&!firstCol.contains("#")){
+						columns.add(firstCol.trim());	
+					}
+				}
+
+			}
+			rs.close();
+		} catch (SQLException e){
+			if(rs != null)
+				rs.close();
+			stmt.close();
+			throw e;
+		}
+		return columns;
+	}
+
 	public void refresh(String tableName) throws SQLException{
 		String sqlStatement = "refresh "+tableName;
 		runUpdateStatement(sqlStatement);
 	}
-	
+
 	public void invalidate(String tableName) throws SQLException{
 		String sqlStatement = "invalidate metadata "+tableName;
 		runUpdateStatement(sqlStatement);
 	}
 
 	public void dropView(String viewName) throws SQLException{
-		String sqlStatement = "drop view "+viewName;
+		String sqlStatement = "drop view if exists "+viewName;
 		runUpdateStatement(sqlStatement);
 
 	}
@@ -126,7 +160,7 @@ public class ImpalaJDBCClient {
 	}
 
 	public void dropTable(String tableName) throws SQLException{
-		String sqlStatement = "drop table "+tableName;
+		String sqlStatement = "drop table if exists "+tableName;
 		runUpdateStatement(sqlStatement);
 	}
 
@@ -136,7 +170,7 @@ public class ImpalaJDBCClient {
 			sqlStatement += " location '"+location+"'";
 		runUpdateStatement(sqlStatement);
 	}
-	
+
 	public void createStoringTable(String tableName, String referenceTableName, String location) throws SQLException{
 		String sqlStatement = "create table if not exists "+tableName+" like "+referenceTableName+" stored as parquet";
 		if(location != null)
@@ -146,12 +180,24 @@ public class ImpalaJDBCClient {
 
 	public void compaction(String tmpTable, String persistTable) throws SQLException{
 		String sqlStatement = null;
-		if (isPartitioned(persistTable))
-			sqlStatement = "insert into "+persistTable+" [shuffle] "+"select * from "+tmpTable;
+		if (isPartitioned(persistTable)){
+			//Here we assume that the tmp table has the same partitions as the persist table
+			List<String> cols = getPartitionedColumn(persistTable);
+			String partitionCols = "partition(";
+			for(int i=0; i<cols.size() ; i++){
+				if(i == cols.size()-1)
+					partitionCols += cols.get(i)+")";
+				else{
+					partitionCols += cols.get(i)+", ";
+				}
+			}
+			sqlStatement = "insert into "+persistTable+" "+partitionCols+" [shuffle] "+"select * from "+tmpTable;
+		}
 		else
 			sqlStatement = "insert into "+persistTable+" select * from "+tmpTable;
 		runUpdateStatement(sqlStatement);
 	}
+
 
 	//Use Cloudera recommended COMPUTE STATS for now 
 	public void updateStats(String tableName) throws SQLException{
@@ -159,13 +205,14 @@ public class ImpalaJDBCClient {
 		runUpdateStatement(sqlStatement);
 	}
 
-	
+
 
 	public void close() throws SQLException{
 		stmt.close();
 		con.close();
 	}
-	
 
-	
+
+
+
 }
