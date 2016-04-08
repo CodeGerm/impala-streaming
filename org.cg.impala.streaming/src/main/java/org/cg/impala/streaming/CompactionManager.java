@@ -17,6 +17,8 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.log4j.BasicConfigurator;
 import org.cg.impala.streaming.compaction.CompactionContext;
+import org.cg.impala.streaming.compaction.Table;
+import org.cg.impala.streaming.compaction.View;
 import org.cg.impala.streaming.compaction.operations.AddRecreatedLandingTableToView;
 import org.cg.impala.streaming.compaction.operations.InitState;
 import org.cg.impala.streaming.compaction.operations.MoveDataFromLandingToPersist;
@@ -56,6 +58,14 @@ public class CompactionManager {
 		prop.load(input);
 		loadConfig(prop);
 
+	}
+	
+	private void tableExistCheck(String tableName) {
+		if(!managedTables.containsKey(tableName)){
+			String message =tableName + " table not managed by compaction manger yet!"; 
+			logger.error(message);
+			throw new IllegalArgumentException(message);
+		}	
 	}
 	
 	private void loadConfig(Properties prop) throws IOException, ClassNotFoundException, SQLException {
@@ -140,18 +150,14 @@ public class CompactionManager {
 	}
 	
 	
-	public  String getTableState(String tableName) throws SQLException{
-		if(!managedTables.containsKey(tableName)){
-			String message =tableName + " table not exist in manager"; 
-			logger.error(message);
-			throw new IllegalArgumentException(message);
-		}	
-		return managedTables.get(tableName).getState().toString();
+	public  CompactionContext getTableState(String tableName) throws SQLException{
+		tableExistCheck(tableName);
+		return managedTables.get(tableName);
 	}
 
 	public synchronized void runNext(String tableName) throws SQLException, IOException {
+		tableExistCheck(tableName);
 		CompactionContext context = managedTables.get(tableName);
-
 		if (context.getState().equals(CompactionContext.States.StateI))
 			SwitchLandingTable.run(context);
 		else if (context.getState().equals(CompactionContext.States.StateII))
@@ -170,13 +176,8 @@ public class CompactionManager {
 	}
 
 	public synchronized void compaction(String tableName) throws SQLException, IOException {
-		if (managedTables == null)
-			throw new IllegalStateException("manager not initialzed");
-		if(!managedTables.containsKey(tableName)){
-			String message =tableName + " table not exist in manager"; 
-			logger.error(message);
-			throw new IllegalArgumentException(message);
-		}	
+
+		tableExistCheck(tableName);
 		
 		int stepNum = CompactionContext.States.values().length;
 		for (int i = 0; i < stepNum; i++) {
@@ -190,28 +191,25 @@ public class CompactionManager {
 		client.close();
 	}
 	
-	public  String getLandingTable(String tableName) throws SQLException{
-		if(!managedTables.containsKey(tableName)){
-			String message =tableName + " table does not exist in manager"; 
-			logger.error(message);
-			throw new IllegalArgumentException(message);
-		}	
-		return managedTables.get(tableName).getLandingTable().getName();
+	public Table getLandingTable(String tableName) throws SQLException{
+		tableExistCheck(tableName);
+		return managedTables.get(tableName).getLandingTable();
 	}
 	
-	public  String getView(String tableName) throws SQLException{
-		if(!managedTables.containsKey(tableName)){
-			String message =tableName + " table does not exist in manager"; 
-			logger.error(message);
-			throw new IllegalArgumentException(message);
-		}	
-		return managedTables.get(tableName).getView().getName();
+	public View getView(String tableName) throws SQLException{
+		tableExistCheck(tableName);
+		return managedTables.get(tableName).getView();
 	}
 	
-	
-
-	
-	
+	public  void load(String tableName) throws SQLException{
+		tableExistCheck(tableName);
+		String landingTable = managedTables.get(tableName).getLandingTable().getName();
+		
+		client.recoverPartition(landingTable);
+		
+		client.refresh(landingTable);
+		
+	}
 	
 
 }

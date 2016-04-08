@@ -54,7 +54,6 @@ public class ImpalaJDBCClient {
 		} catch (SQLException e){
 			if(rs != null)
 				rs.close();
-			stmt.close();
 			throw e;
 		}
 	}
@@ -95,7 +94,6 @@ public class ImpalaJDBCClient {
 		} catch (SQLException e){
 			if(rs != null)
 				rs.close();
-			stmt.close();
 			throw e;
 		}
 		return location;
@@ -126,7 +124,6 @@ public class ImpalaJDBCClient {
 		} catch (SQLException e){
 			if(rs != null)
 				rs.close();
-			stmt.close();
 			throw e;
 		}
 		return columns;
@@ -211,7 +208,6 @@ public class ImpalaJDBCClient {
 		stmt.close();
 		con.close();
 	}
-
 
 
 
