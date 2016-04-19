@@ -43,7 +43,11 @@ public class CompactionManager {
 	private String tmpTableLocation;
 
 	private Gson gson;
+	
+	private long wait_time;
 
+	private String DEFAULT_WAIT_TIME="3000";
+	
 	public CompactionManager(String config) throws IOException, ClassNotFoundException, SQLException {
 		loadConfig(config);
 		gson = new Gson();
@@ -75,6 +79,7 @@ public class CompactionManager {
 		client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
 		stateFileLocation = prop.getProperty("stateFiles");
 		tmpTableLocation = prop.getProperty("tmpTableLocation");
+		wait_time = Long.parseLong(prop.getProperty("wait_time",DEFAULT_WAIT_TIME));
 		logger.info("state file location: "+stateFileLocation);
 		logger.info("connection Url: "+connectionUrl);
 		
@@ -155,13 +160,15 @@ public class CompactionManager {
 		return managedTables.get(tableName);
 	}
 
-	public synchronized void runNext(String tableName) throws SQLException, IOException {
+	public synchronized void runNext(String tableName) throws SQLException, IOException, InterruptedException {
 		tableExistCheck(tableName);
 		CompactionContext context = managedTables.get(tableName);
 		if (context.getState().equals(CompactionContext.States.StateI))
 			SwitchLandingTable.run(context);
-		else if (context.getState().equals(CompactionContext.States.StateII))
+		else if (context.getState().equals(CompactionContext.States.StateII)){
+			Thread.sleep(wait_time);
 			MoveDataFromLandingToPersist.run(client, context);
+		}
 		else if (context.getState().equals(CompactionContext.States.StateIII))
 			SwitchViewToTempTable.run(client, context);
 		else if (context.getState().equals(CompactionContext.States.StateIV))
@@ -175,7 +182,7 @@ public class CompactionManager {
 		managedTables.put(tableName, context);
 	}
 
-	public synchronized void compaction(String tableName) throws SQLException, IOException {
+	public synchronized void compaction(String tableName) throws SQLException, IOException, InterruptedException {
 
 		tableExistCheck(tableName);
 		
@@ -208,6 +215,20 @@ public class CompactionManager {
 		client.recoverPartition(landingTable);
 		
 		client.refresh(landingTable);
+		
+	}
+	
+	public synchronized void dropTable(String tableName) throws SQLException{
+		String view1 = tableName+"_view_1";
+		String view2 = tableName+"_view_2";
+		String landing1 = tableName+"_landing_1";
+		String landing2 = tableName+"_landing_2";
+		String view = tableName+"_view";
+		client.dropTable(landing2);
+		client.dropTable(landing1);
+		client.dropView(view);
+		client.dropView(view1);
+		client.dropView(view2);
 		
 	}
 	

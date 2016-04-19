@@ -19,11 +19,11 @@ public class SwitchViewToTempTable {
 	
 	
 	public static void run(ImpalaJDBCClient client,CompactionContext context) throws SQLException, IOException{
-		//point view to view2 by recreating the view in impala
-		client.dropView(context.getView().getName());
+		//point view to view2 by altering the view in impala
+		
 		List<String>entities =new ArrayList<String>();
 		entities.add(context.getView2().getName());
-		client.createView(context.getView().getName(),context.getView1().getName(),entities);
+		client.alterView(context.getView().getName(), entities);
 		
 		//recreate view in context object
 		List<View>subViews = new ArrayList<View>();

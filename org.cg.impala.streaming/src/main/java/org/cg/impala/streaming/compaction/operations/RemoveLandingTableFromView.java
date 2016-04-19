@@ -18,12 +18,12 @@ public class RemoveLandingTableFromView {
 	private static final Log logger = LogFactory.getLog(RemoveLandingTableFromView.class);
 
 	public static void run(ImpalaJDBCClient client, CompactionContext context) throws SQLException, IOException{
-		//exclude landing table 2 in view 1 by recreating the view 1 in impala
-		client.dropView(context.getView1().getName());
+		//exclude landing table 2 in view 1 by altering the view 1 in impala
+		
 		List<String>entities =new ArrayList<String>();
 		entities.add(context.getStore_table1().getName());
 		entities.add(context.getLandingTable1().getName());
-		client.createView(context.getView1().getName(),context.getView2().getName(),entities);
+		client.alterView(context.getView1().getName(), entities);
 
 		//recreate view 1 in context object
 		List<Table>subTables = new ArrayList<Table>();

@@ -19,7 +19,6 @@ public class ImpalaJDBCClient {
 
 
 	private Connection con;
-	private Statement stmt;
 
 	private static final Log logger = LogFactory.getLog(ImpalaJDBCClient.class);
 
@@ -34,39 +33,60 @@ public class ImpalaJDBCClient {
 
 		Class.forName(jdbcDriverName);
 		con = DriverManager.getConnection(connectionUrl);
-		stmt = con.createStatement();
 
 	}
 
 	public boolean isPartitioned(String tableName) throws SQLException{
 		ResultSet rs = null;
+		Statement stmt = null;
 		try{
+			stmt = con.createStatement();
 			String sqlStatement = "describe formatted "+tableName;
 			rs = stmt.executeQuery(sqlStatement);
 			while(rs.next()){
 				if(rs.getString(1).trim().equals("# Partition Information")){
-					rs.close();
 					return true;
 				}
 			}
-			rs.close();
 			return false;
 		} catch (SQLException e){
-			if(rs != null)
-				rs.close();
 			throw e;
+		} finally {
+			if(rs!=null)
+				rs.close();
+			if(stmt!=null)
+				stmt.close();
 		}
 	}
 
 	public ResultSet runQueryStatement(String sqlStatement) throws SQLException{
 		logger.info("running query statement: "+sqlStatement);
-		ResultSet rs = stmt.executeQuery(sqlStatement);
+		Statement stmt = null;
+		ResultSet rs = null;
+		try {
+			stmt = con.createStatement();
+			rs = stmt.executeQuery(sqlStatement);
+		} catch (SQLException e){
+			throw e;
+		} finally {
+			if(stmt!=null)
+				stmt.close();
+		}
 		return rs;
 	}
 
 	public void runUpdateStatement(String sqlStatement) throws SQLException{
 		logger.info("running update statement: "+sqlStatement);
-		stmt.executeUpdate(sqlStatement);
+		Statement stmt = null;
+		try {
+			stmt = con.createStatement();
+			stmt.executeUpdate(sqlStatement);
+		} catch (SQLException e){
+			throw e;
+		} finally {
+			if(stmt!=null)
+				stmt.close();
+		}
 	}
 
 	public void recoverPartition(String tableName) throws SQLException{
@@ -83,7 +103,9 @@ public class ImpalaJDBCClient {
 	public String getTableLocation(String tableName) throws SQLException{
 		ResultSet rs = null;
 		String location = null;
+		Statement stmt = null;
 		try{
+			stmt = con.createStatement();
 			String sqlStatement = "describe formatted "+tableName;
 			rs = stmt.executeQuery(sqlStatement);
 			while(rs.next()){
@@ -95,6 +117,11 @@ public class ImpalaJDBCClient {
 			if(rs != null)
 				rs.close();
 			throw e;
+		} finally {
+			if(rs!=null)
+				rs.close();
+			if(stmt!=null)
+				stmt.close();
 		}
 		return location;
 	}
@@ -103,7 +130,9 @@ public class ImpalaJDBCClient {
 	public List<String> getPartitionedColumn(String tableName) throws SQLException{
 		List<String> columns = new ArrayList<String>();
 		ResultSet rs = null;
+		Statement stmt = null;
 		try{
+			stmt = con.createStatement();
 			boolean searchingIndicator = false;
 			String sqlStatement = "describe formatted "+tableName;
 			rs = stmt.executeQuery(sqlStatement);
@@ -118,13 +147,14 @@ public class ImpalaJDBCClient {
 						columns.add(firstCol.trim());	
 					}
 				}
-
 			}
-			rs.close();
 		} catch (SQLException e){
-			if(rs != null)
-				rs.close();
 			throw e;
+		} finally {
+			if(rs!=null)
+				rs.close();
+			if(stmt!=null)
+				stmt.close();
 		}
 		return columns;
 	}
@@ -145,7 +175,7 @@ public class ImpalaJDBCClient {
 
 	}
 
-	public void createView(String viewName, String referenceViewName, List<String> subEntity) throws SQLException{
+	public void createView(String viewName, List<String> subEntity) throws SQLException{
 		String subEntityString = "";
 		for(int i=0;i<subEntity.size();i++){
 			subEntityString+=" select * from "+subEntity.get(i);
@@ -153,6 +183,17 @@ public class ImpalaJDBCClient {
 				subEntityString+=" union all ";
 		}
 		String sqlStatement = "create view if not exists "+viewName+" as "+subEntityString;
+		runUpdateStatement(sqlStatement);
+	}
+
+	public void alterView(String viewName, List<String> subEntity) throws SQLException{
+		String subEntityString = "";
+		for(int i=0;i<subEntity.size();i++){
+			subEntityString+=" select * from "+subEntity.get(i);
+			if(i<subEntity.size()-1)
+				subEntityString+=" union all ";
+		}
+		String sqlStatement = "alter view "+viewName+" as "+subEntityString;
 		runUpdateStatement(sqlStatement);
 	}
 
@@ -205,7 +246,6 @@ public class ImpalaJDBCClient {
 
 
 	public void close() throws SQLException{
-		stmt.close();
 		con.close();
 	}
 

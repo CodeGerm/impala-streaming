@@ -53,7 +53,7 @@ public class InitState {
 				landing_table2.getName());
 		String viewName1 = tableName + "_view_1";
 		View view1 = new View(viewName1, null, subTables1);
-		client.createView(viewName1, tableName, subTablesName1);
+		client.createView(viewName1, subTablesName1);
 		client.refresh(viewName1);
 
 		logger.info("creating view 2");
@@ -61,7 +61,7 @@ public class InitState {
 		List<String> subTablesName2 = Arrays.asList(store_table2.getName(), landing_table2.getName());
 		String viewName2 = tableName + "_view_2";
 		View view2 = new View(viewName2, null, subTables2);
-		client.createView(viewName2, tableName, subTablesName2);
+		client.createView(viewName2, subTablesName2);
 		client.refresh(viewName2);
 
 		logger.info("creating exposed view");
@@ -71,7 +71,7 @@ public class InitState {
 
 		View view = new View(viewName, subView, null);
 
-		client.createView(viewName, tableName, subViewName);
+		client.createView(viewName, subViewName);
 		client.refresh(viewName);
 
 		States state = CompactionContext.States.StateI;

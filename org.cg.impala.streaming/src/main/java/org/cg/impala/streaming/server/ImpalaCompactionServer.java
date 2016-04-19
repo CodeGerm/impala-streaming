@@ -34,6 +34,7 @@ import akka.http.javadsl.server.values.Parameter;
 import akka.http.javadsl.server.values.Parameters;
 
 
+
 public class ImpalaCompactionServer extends HttpApp {
 
 	private CompactionManager compactionManager;
@@ -51,6 +52,8 @@ public class ImpalaCompactionServer extends HttpApp {
 	public ImpalaCompactionServer(Config config) {
 		this.config = config;
 		initialize();
+	
+		
 	}
 
 	public void initialize() {
@@ -73,6 +76,7 @@ public class ImpalaCompactionServer extends HttpApp {
 
 	@Override
 	public Route createRoute() {
+
 
 		Handler1<String> addTableHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
@@ -172,6 +176,8 @@ public class ImpalaCompactionServer extends HttpApp {
 					return ctx.complete(Responses.InternalErrorResponse(e));
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
+				} catch (InterruptedException e) {
+					return ctx.complete(Responses.InternalErrorResponse(e));
 				}
 				return ctx.completeAs(Jackson.json(), tableName + " next step fnished ");
 			}
@@ -189,6 +195,8 @@ public class ImpalaCompactionServer extends HttpApp {
 					return ctx.complete(Responses.InternalErrorResponse(e));
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
+				} catch (InterruptedException e) {
+					return ctx.complete(Responses.InternalErrorResponse(e));
 				}
 				return ctx.completeAs(Jackson.json(), tableName + " compaction finished ");
 			}
@@ -196,8 +204,7 @@ public class ImpalaCompactionServer extends HttpApp {
 
 		Handler1<String> loadHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
-
-
+			
 			public RouteResult apply(RequestContext ctx, String tableName) {
 				try {
 					compactionManager.load(tableName);
@@ -213,6 +220,7 @@ public class ImpalaCompactionServer extends HttpApp {
 		return route(
 				// matches the empty path
 				pathSingleSlash().route(get(complete("Impala Compaction Service"))),
+				
 				path("add").route(post(handleWith1(table, addTableHandler))),
 				path("list").route(get(handleWith(listTableHandler))),
 				path("state").route(get(handleWith1(table, getTableStateHandler))),

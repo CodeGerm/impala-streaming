@@ -22,13 +22,13 @@ public class AddRecreatedLandingTableToView {
 	
 	public static void run(ImpalaJDBCClient client, CompactionContext context) throws SQLException, IOException{
 		
-		//include landing table 1 in view 2 by recreating the view 2 in impala
-		client.dropView(context.getView2().getName());
+		//include landing table 1 in view 2 by altering the view 2 in impala
+		
 		List<String>entities =new ArrayList<String>();
 		entities.add(context.getStore_table2().getName());
 		entities.add(context.getLandingTable1().getName());
 		entities.add(context.getLandingTable2().getName());
-		client.createView(context.getView2().getName(),context.getView1().getName(),entities);
+		client.alterView(context.getView2().getName(), entities);
 		
 		//recreate view 2 in context object
 		List<Table>subTables = new ArrayList<Table>();
