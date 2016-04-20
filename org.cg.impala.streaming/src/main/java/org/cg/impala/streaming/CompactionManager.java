@@ -36,22 +36,25 @@ public class CompactionManager {
 
 	private Map<String, CompactionContext> managedTables;
 
+	private Map<String, Boolean> loadingStatus;
+
 	private ImpalaJDBCClient client;
 
 	private String stateFileLocation;
-	
+
 	private String tmpTableLocation;
 
 	private Gson gson;
-	
+
 	private long wait_time;
 
 	private String DEFAULT_WAIT_TIME="3000";
-	
+
 	public CompactionManager(String config) throws IOException, ClassNotFoundException, SQLException {
 		loadConfig(config);
 		gson = new Gson();
 		managedTables = new HashMap<String, CompactionContext>();
+		loadingStatus = new HashMap<String, Boolean>();
 		loadContexts();
 		logger.info("Compaction manager initialized!");
 	}
@@ -63,7 +66,7 @@ public class CompactionManager {
 		loadConfig(prop);
 
 	}
-	
+
 	private void tableExistCheck(String tableName) {
 		if(!managedTables.containsKey(tableName)){
 			String message =tableName + " table not managed by compaction manger yet!"; 
@@ -71,9 +74,9 @@ public class CompactionManager {
 			throw new IllegalArgumentException(message);
 		}	
 	}
-	
+
 	private void loadConfig(Properties prop) throws IOException, ClassNotFoundException, SQLException {
-		
+
 		String connectionUrl = prop.getProperty("connectionUrl");
 		String jdbcDriverName = prop.getProperty("jdbcDriverName");
 		client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
@@ -82,7 +85,7 @@ public class CompactionManager {
 		wait_time = Long.parseLong(prop.getProperty("wait_time",DEFAULT_WAIT_TIME));
 		logger.info("state file location: "+stateFileLocation);
 		logger.info("connection Url: "+connectionUrl);
-		
+
 
 	}
 
@@ -126,7 +129,7 @@ public class CompactionManager {
 
 		}
 	}
-	
+
 	public synchronized void addTable(String tableName) throws SQLException, IOException{
 		if(managedTables.containsKey(tableName)){
 			String message =tableName + " table already managed by compaction manger!"; 
@@ -135,29 +138,34 @@ public class CompactionManager {
 		}	
 		logger.info("Adding table " + tableName + " to compaction manager");
 		String tableLocation = client.getTableLocation(tableName);
-		
+
 		if(tableLocation == null){
 			String message = tableName + " is not a table or does not exist ";
 			logger.error(message);
 			throw new IllegalArgumentException(message);
 		}
-			
+
 		CompactionContext context = InitState.init(client, tableName, tableLocation, tmpTableLocation, stateFileLocation+"/"+tableName+".state");
-		
+
 		managedTables.put(tableName, context);
 	}
-	
-	
+
+
 	public  List<String> listTables() throws SQLException, IOException{
 		List<String> tables = new ArrayList<String>();
 		tables.addAll(managedTables.keySet());
 		return tables;
 	}
-	
-	
-	public  CompactionContext getTableState(String tableName) throws SQLException{
+
+
+	public  CompactionContext getTableContext(String tableName) throws SQLException{
 		tableExistCheck(tableName);
 		return managedTables.get(tableName);
+	}
+
+	public  String getTableState(String tableName) throws SQLException{
+		tableExistCheck(tableName);
+		return managedTables.get(tableName).getState().toString();
 	}
 
 	public synchronized void runNext(String tableName) throws SQLException, IOException, InterruptedException {
@@ -185,7 +193,7 @@ public class CompactionManager {
 	public synchronized void compaction(String tableName) throws SQLException, IOException, InterruptedException {
 
 		tableExistCheck(tableName);
-		
+
 		int stepNum = CompactionContext.States.values().length;
 		for (int i = 0; i < stepNum; i++) {
 			runNext(tableName);
@@ -193,31 +201,36 @@ public class CompactionManager {
 				break;
 		}
 	}
-	
+
 	public synchronized void close() throws SQLException{
 		client.close();
 	}
-	
-	public Table getLandingTable(String tableName) throws SQLException{
+
+	public String getLandingTable(String tableName) throws SQLException{
 		tableExistCheck(tableName);
-		return managedTables.get(tableName).getLandingTable();
+		return managedTables.get(tableName).getLandingTable().getDirectory();
 	}
-	
+
 	public View getView(String tableName) throws SQLException{
 		tableExistCheck(tableName);
 		return managedTables.get(tableName).getView();
 	}
-	
+
+	public  boolean getLoadingState(String tableName) throws SQLException{
+		return loadingStatus.get(tableName);
+	}
+
 	public  void load(String tableName) throws SQLException{
 		tableExistCheck(tableName);
+		loadingStatus.put(tableName, true);
 		String landingTable = managedTables.get(tableName).getLandingTable().getName();
-		
+
 		client.recoverPartition(landingTable);
-		
+
 		client.refresh(landingTable);
-		
+		loadingStatus.put(tableName, false);
 	}
-	
+
 	public synchronized void dropTable(String tableName) throws SQLException{
 		String view1 = tableName+"_view_1";
 		String view2 = tableName+"_view_2";
@@ -229,8 +242,8 @@ public class CompactionManager {
 		client.dropView(view);
 		client.dropView(view1);
 		client.dropView(view2);
-		
+
 	}
-	
+
 
 }

@@ -33,6 +33,11 @@ public class View {
 	public void setName(String name) {
 		this.name = name;
 	}
+
+	@Override
+	public String toString() {
+		return "View [name=" + name + ", subViews=" + subViews + ", subTables=" + subTables + "]";
+	}
 	
 	
 

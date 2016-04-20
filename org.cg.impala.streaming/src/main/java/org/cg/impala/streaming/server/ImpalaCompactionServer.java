@@ -52,14 +52,14 @@ public class ImpalaCompactionServer extends HttpApp {
 	public ImpalaCompactionServer(Config config) {
 		this.config = config;
 		initialize();
-	
-		
+
+
 	}
 
 	public void initialize() {
 
 		String compactionConfigFile = config.getString(COMPACTION_CONFIG_NAME);
-
+		logger.info("starting server");
 		try {
 			compactionManager = new CompactionManager(compactionConfigFile);
 		} catch (ClassNotFoundException e) {
@@ -81,7 +81,7 @@ public class ImpalaCompactionServer extends HttpApp {
 		Handler1<String> addTableHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
 
-			
+
 			public RouteResult apply(RequestContext ctx, String tableName) {
 				try {
 					compactionManager.addTable(tableName);
@@ -92,6 +92,7 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.BadRequestResponse(e));
 				}
+				logger.info( tableName + " added ");
 				return ctx.completeAs(Jackson.json(), tableName + " added ");
 			}
 		};
@@ -99,7 +100,7 @@ public class ImpalaCompactionServer extends HttpApp {
 		Handler listTableHandler = new Handler() {
 			private static final long serialVersionUID = 1L;
 
-		
+
 			public RouteResult apply(RequestContext ctx) {
 				List<String> tables = new ArrayList<String>();
 				try {
@@ -109,6 +110,7 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (IOException e) {
 					return ctx.complete(Responses.InternalErrorResponse(e));
 				}
+				logger.info( "tables: "+tables );
 				return ctx.completeAs(Jackson.json(), tables);
 			}
 		};
@@ -117,7 +119,7 @@ public class ImpalaCompactionServer extends HttpApp {
 			private static final long serialVersionUID = 1L;
 
 			public RouteResult apply(RequestContext ctx, String tableName) {
-				CompactionContext state = null;
+				String state = null;
 				try {
 					state = compactionManager.getTableState(tableName);
 				} catch (SQLException e) {
@@ -125,14 +127,32 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
 				}
+				logger.info( "state: "+state );
 				return ctx.completeAs(Jackson.json(), state);
+			}
+		};
+
+		Handler1<String> getTableContextHandler = new Handler1<String>() {
+			private static final long serialVersionUID = 1L;
+
+			public RouteResult apply(RequestContext ctx, String tableName) {
+				CompactionContext context = null;
+				try {
+					context = compactionManager.getTableContext(tableName);
+				} catch (SQLException e) {
+					return ctx.complete(Responses.BadRequestResponse(e));
+				} catch (IllegalArgumentException e) {
+					return ctx.complete(Responses.NotFoundResponse(e));
+				}
+				logger.info( "Context: "+context );
+				return ctx.completeAs(Jackson.json(), context);
 			}
 		};
 
 		Handler1<String> getTableViewHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
 
-	
+
 			public RouteResult apply(RequestContext ctx, String tableName) {
 				View view = null;
 				try {
@@ -142,6 +162,7 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
 				}
+				logger.info( "view: "+view );
 				return ctx.completeAs(Jackson.json(), view);
 			}
 		};
@@ -149,9 +170,9 @@ public class ImpalaCompactionServer extends HttpApp {
 		Handler1<String> getTableLandingTableHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
 
-	
+
 			public RouteResult apply(RequestContext ctx, String tableName) {
-				Table landingTable = null;
+				String landingTable = null;
 				try {
 					landingTable = compactionManager.getLandingTable(tableName);
 				} catch (SQLException e) {
@@ -159,6 +180,7 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
 				}
+				logger.info( "landingTable: "+landingTable );
 				return ctx.completeAs(Jackson.json(), landingTable);
 			}
 		};
@@ -179,16 +201,25 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (InterruptedException e) {
 					return ctx.complete(Responses.InternalErrorResponse(e));
 				}
+				logger.info( tableName + " next step fnished " );
 				return ctx.completeAs(Jackson.json(), tableName + " next step fnished ");
 			}
 		};
 
 		Handler1<String> compactionHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
-
+			Boolean compactionStarted = false;
 			public RouteResult apply(RequestContext ctx, String tableName) {
 				try {
-					compactionManager.compaction(tableName);
+					//prevent potential problem caused by concurrent altering table
+					for(int i=0;i<3;i++){
+						if(!compactionManager.getLoadingState(tableName)){
+							compactionManager.compaction(tableName);
+							compactionStarted = true;
+							break;
+						}
+						Thread.sleep(1000);
+					}
 				} catch (SQLException e) {
 					return ctx.complete(Responses.BadRequestResponse(e));
 				} catch (IOException e) {
@@ -198,21 +229,30 @@ public class ImpalaCompactionServer extends HttpApp {
 				} catch (InterruptedException e) {
 					return ctx.complete(Responses.InternalErrorResponse(e));
 				}
-				return ctx.completeAs(Jackson.json(), tableName + " compaction finished ");
+				if(compactionStarted){
+					logger.info( tableName + " compaction finished " );
+					return ctx.completeAs(Jackson.json(), tableName + " compaction finished ");
+				} else {
+					return ctx.complete(Responses.InternalErrorResponse("Can't compaction during loading, please check loading status"));
+				}
 			}
 		};
 
 		Handler1<String> loadHandler = new Handler1<String>() {
 			private static final long serialVersionUID = 1L;
-			
+
 			public RouteResult apply(RequestContext ctx, String tableName) {
 				try {
+					//prevent potential problem caused by concurrent altering table
+					if(!compactionManager.getTableState(tableName).equals(CompactionContext.States.StateI.toString()))
+						return ctx.complete(Responses.InternalErrorResponse("Can't load during compaction, try again later"));
 					compactionManager.load(tableName);
 				} catch (SQLException e) {
 					return ctx.complete(Responses.BadRequestResponse(e));
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
-				}
+				} 
+				logger.info(  tableName + " loaded " );
 				return ctx.completeAs(Jackson.json(), tableName + " loaded ");
 			}
 		};
@@ -220,10 +260,11 @@ public class ImpalaCompactionServer extends HttpApp {
 		return route(
 				// matches the empty path
 				pathSingleSlash().route(get(complete("Impala Compaction Service"))),
-				
+
 				path("add").route(post(handleWith1(table, addTableHandler))),
 				path("list").route(get(handleWith(listTableHandler))),
 				path("state").route(get(handleWith1(table, getTableStateHandler))),
+				path("context").route(get(handleWith1(table, getTableContextHandler))),
 				path("view").route(get(handleWith1(table, getTableViewHandler))),
 				path("landing").route(get(handleWith1(table, getTableLandingTableHandler))),
 				path("next").route(post(handleWith1(table, goNextHandler))),
@@ -240,7 +281,6 @@ public class ImpalaCompactionServer extends HttpApp {
 		int port = config.getInt("port");
 		ActorSystem system = ActorSystem.create("ImpalaCompactionServer", config);
 		new ImpalaCompactionServer(config).bindRoute(host, port, system);
-
 	}
 
 }
