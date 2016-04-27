@@ -9,14 +9,17 @@ import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.log4j.BasicConfigurator;
 import org.cg.impala.streaming.compaction.CompactionContext;
+import org.cg.impala.streaming.compaction.CompactionStatus;
 import org.cg.impala.streaming.compaction.Table;
 import org.cg.impala.streaming.compaction.View;
 import org.cg.impala.streaming.compaction.operations.AddRecreatedLandingTableToView;
@@ -37,6 +40,8 @@ public class CompactionManager {
 	private Map<String, CompactionContext> managedTables;
 
 	private Map<String, Boolean> loadingStatus;
+	
+	private Map<String, CompactionStatus> compactionStatus;
 
 	private ImpalaJDBCClient client;
 
@@ -46,15 +51,20 @@ public class CompactionManager {
 
 	private Gson gson;
 
-	private long wait_time;
+	private Integer defaultCompactionTaskNumLimit=1000;
 
-	private String DEFAULT_WAIT_TIME="3000";
 
 	public CompactionManager(String config) throws IOException, ClassNotFoundException, SQLException {
 		loadConfig(config);
 		gson = new Gson();
 		managedTables = new HashMap<String, CompactionContext>();
 		loadingStatus = new HashMap<String, Boolean>();
+		compactionStatus = new LinkedHashMap<String, CompactionStatus>(defaultCompactionTaskNumLimit) {
+			private static final long serialVersionUID = 1L;
+			@Override protected boolean removeEldestEntry(Map.Entry<String, CompactionStatus> entry) {
+				    return size() > defaultCompactionTaskNumLimit;
+				  }
+				}; 
 		loadContexts();
 		logger.info("Compaction manager initialized!");
 	}
@@ -82,7 +92,6 @@ public class CompactionManager {
 		client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
 		stateFileLocation = prop.getProperty("stateFiles");
 		tmpTableLocation = prop.getProperty("tmpTableLocation");
-		wait_time = Long.parseLong(prop.getProperty("wait_time",DEFAULT_WAIT_TIME));
 		logger.info("state file location: "+stateFileLocation);
 		logger.info("connection Url: "+connectionUrl);
 
@@ -167,6 +176,16 @@ public class CompactionManager {
 		tableExistCheck(tableName);
 		return managedTables.get(tableName).getState().toString();
 	}
+	
+	public CompactionStatus getCompactionStatus(String id){
+		CompactionStatus cs =  compactionStatus.get(id);
+		if(cs == null){
+			String message ="compaction: "+id + " does not exist"; 
+			logger.error(message);
+			throw new IllegalArgumentException(message);
+		}
+		return compactionStatus.get(id);
+	}
 
 	public synchronized void runNext(String tableName) throws SQLException, IOException, InterruptedException {
 		tableExistCheck(tableName);
@@ -174,7 +193,6 @@ public class CompactionManager {
 		if (context.getState().equals(CompactionContext.States.StateI))
 			SwitchLandingTable.run(context);
 		else if (context.getState().equals(CompactionContext.States.StateII)){
-			Thread.sleep(wait_time);
 			MoveDataFromLandingToPersist.run(client, context);
 		}
 		else if (context.getState().equals(CompactionContext.States.StateIII))
@@ -190,7 +208,48 @@ public class CompactionManager {
 		managedTables.put(tableName, context);
 	}
 
-	public synchronized void compaction(String tableName) throws SQLException, IOException, InterruptedException {
+	public synchronized CompactionStatus compaction(String tableName) throws SQLException, IOException, InterruptedException {
+
+		tableExistCheck(tableName);
+		if(!getTableState(tableName).equals(CompactionContext.States.StateI.toString())){
+			String message =tableName + " is not in normal state, please wait or recover"; 
+			logger.error(message);
+			throw new IllegalStateException(message);
+		}
+		int stepNum = CompactionContext.States.values().length;
+		runNext(tableName);
+		String newLandingTable = getLandingTable(tableName);
+		String id = UUID.randomUUID().toString();
+		CompactionStatus cs = new CompactionStatus(id, newLandingTable, getTableState(tableName), tableName, CompactionStatus.Status.running);
+		compactionStatus.put(id, cs);
+		Thread thread = new Thread("compactionThread"){
+			public void run(){
+				for(int i=0;i<stepNum-1;i++){
+					try {
+						runNext(tableName);
+						cs.setTableState(getTableState(tableName));
+						compactionStatus.put(id, cs);
+					} catch (SQLException | IOException | InterruptedException e) {
+						cs.setFailedReason(e.getMessage());
+						cs.setStatus(CompactionStatus.Status.failed);
+						compactionStatus.put(id, cs);
+						logger.error(e);
+					}	
+				}
+				cs.setStatus(CompactionStatus.Status.finished);
+				compactionStatus.put(id, cs);
+				logger.info("Compaction finished");
+			}
+		};
+		thread.start();
+		
+		//return newLandingTable;
+		return cs;
+	}
+
+
+
+	public void recover(String tableName) throws SQLException, IOException, InterruptedException {
 
 		tableExistCheck(tableName);
 
@@ -217,6 +276,8 @@ public class CompactionManager {
 	}
 
 	public  boolean getLoadingState(String tableName) throws SQLException{
+		if(!loadingStatus.containsKey(tableName)) 
+			return false;
 		return loadingStatus.get(tableName);
 	}
 
@@ -242,6 +303,10 @@ public class CompactionManager {
 		client.dropView(view);
 		client.dropView(view1);
 		client.dropView(view2);
+
+	}
+	
+	public static void main(String args[]){
 
 	}
 
