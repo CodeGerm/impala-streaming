@@ -52,6 +52,12 @@ public class CompactionManager {
 	private Gson gson;
 
 	private Integer defaultCompactionTaskNumLimit=1000;
+	
+	private static String IMPALA_USER_DIRECTORY = "/user/impala";
+	
+	private static String HADOOP_USER_NAME = "HADOOP_USER_NAME";
+	
+	private static String IMPAlA = "impala";
 
 
 	public CompactionManager(String config) throws IOException, ClassNotFoundException, SQLException {
@@ -86,12 +92,35 @@ public class CompactionManager {
 	}
 
 	private void loadConfig(Properties prop) throws IOException, ClassNotFoundException, SQLException {
-
+		
+		String hdfsConnection = prop.getProperty(HdfsClient.HDFS_CONNECTION_NAME);
+		System.setProperty(HADOOP_USER_NAME, IMPAlA);
+		HdfsClient dfs = new HdfsClient(hdfsConnection);
+		if(!dfs.checkDir(IMPALA_USER_DIRECTORY)){
+			logger.warn("impala home directory not exist, creating...");
+			dfs.mkDir(IMPALA_USER_DIRECTORY);
+			logger.info("impala home directory created");
+		}
+		tmpTableLocation = prop.getProperty("tmpTableLocation");
+		String tmpTableLocationPath = tmpTableLocation.replace(hdfsConnection, "");
+		if(!dfs.checkDir(tmpTableLocationPath)){
+			logger.warn("temperory table directory not exist, creating...");
+			dfs.mkDir(tmpTableLocationPath);
+			logger.info("temperory table directory: "+tmpTableLocationPath+" created ");
+		}
+		
+		if(!dfs.checkDir(IMPALA_USER_DIRECTORY)){
+			logger.warn("impala home directory not exist, creating...");
+			dfs.mkDir(IMPALA_USER_DIRECTORY);
+		}
+		
+		dfs.close();
+		
 		String connectionUrl = prop.getProperty("connectionUrl");
 		String jdbcDriverName = prop.getProperty("jdbcDriverName");
 		client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
 		stateFileLocation = prop.getProperty("stateFiles");
-		tmpTableLocation = prop.getProperty("tmpTableLocation");
+		
 		logger.info("state file location: "+stateFileLocation);
 		logger.info("connection Url: "+connectionUrl);
 

@@ -33,7 +33,7 @@ public class ImpalaJDBCClient {
 
 		Class.forName(jdbcDriverName);
 		con = DriverManager.getConnection(connectionUrl);
-
+		
 	}
 
 	public boolean isPartitioned(String tableName) throws SQLException{
@@ -80,6 +80,7 @@ public class ImpalaJDBCClient {
 		Statement stmt = null;
 		try {
 			stmt = con.createStatement();
+			stmt.setQueryTimeout(100);
 			stmt.executeUpdate(sqlStatement);
 		} catch (SQLException e){
 			throw e;
