@@ -8,11 +8,9 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.log4j.BasicConfigurator;
 import org.cg.impala.streaming.CompactionManager;
 import org.cg.impala.streaming.compaction.CompactionContext;
 import org.cg.impala.streaming.compaction.CompactionStatus;
-import org.cg.impala.streaming.compaction.Table;
 import org.cg.impala.streaming.compaction.View;
 
 import com.typesafe.config.Config;
@@ -63,7 +61,8 @@ public class ImpalaCompactionServer extends HttpApp {
 
 		String compactionConfigFile = config.getString(COMPACTION_CONFIG_NAME);
 		logger.info("starting server");
-		try {
+		
+		try {	
 			compactionManager = new CompactionManager(compactionConfigFile);
 		} catch (ClassNotFoundException e) {
 			logger.fatal("error initializing server", e);
@@ -288,6 +287,8 @@ public class ImpalaCompactionServer extends HttpApp {
 					return ctx.complete(Responses.BadRequestResponse(e));
 				} catch (IllegalArgumentException e) {
 					return ctx.complete(Responses.NotFoundResponse(e));
+				} catch (IOException e) {
+					return ctx.complete(Responses.InternalErrorResponse(e));
 				} 
 				logger.info(  tableName + " loaded " );
 				return ctx.completeAs(Jackson.json(), tableName + " loaded ");
@@ -331,8 +332,13 @@ public class ImpalaCompactionServer extends HttpApp {
 	}
 
 	public static void main(String[] args) throws IOException {
-		BasicConfigurator.configure();
-		File file = new File("conf/properties.conf");
+
+		if(args.length==0){
+			System.out.println("Please provide config file path");
+			System.exit(0);
+		}
+		String  configPath = args[0];
+		File file = new File(configPath);
 		Config config = ConfigFactory.parseFile(file);
 		config.resolve();
 		String host = config.getString("host");

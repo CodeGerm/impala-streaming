@@ -7,12 +7,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.GregorianCalendar;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
 
 public class ImpalaJDBCClient {
 
@@ -32,8 +31,9 @@ public class ImpalaJDBCClient {
 	private void init(String connectionUrl,String jdbcDriverName) throws IOException, ClassNotFoundException, SQLException {
 
 		Class.forName(jdbcDriverName);
-		con = DriverManager.getConnection(connectionUrl);
 		
+		con = DriverManager.getConnection(connectionUrl);
+
 	}
 
 	public boolean isPartitioned(String tableName) throws SQLException{
@@ -247,7 +247,8 @@ public class ImpalaJDBCClient {
 
 
 	public void close() throws SQLException{
-		con.close();
+		if(con!=null)
+			con.close();
 	}
 
 

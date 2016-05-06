@@ -17,10 +17,8 @@ import java.util.UUID;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.log4j.BasicConfigurator;
 import org.cg.impala.streaming.compaction.CompactionContext;
 import org.cg.impala.streaming.compaction.CompactionStatus;
-import org.cg.impala.streaming.compaction.Table;
 import org.cg.impala.streaming.compaction.View;
 import org.cg.impala.streaming.compaction.operations.AddRecreatedLandingTableToView;
 import org.cg.impala.streaming.compaction.operations.InitState;
@@ -40,7 +38,7 @@ public class CompactionManager {
 	private Map<String, CompactionContext> managedTables;
 
 	private Map<String, Boolean> loadingStatus;
-	
+
 	private Map<String, CompactionStatus> compactionStatus;
 
 	private ImpalaJDBCClient client;
@@ -49,15 +47,23 @@ public class CompactionManager {
 
 	private String tmpTableLocation;
 
+	private String hdfsConnection;
+	
+	private String connectionUrl;
+	
+	private String jdbcDriverName;
+
 	private Gson gson;
 
 	private Integer defaultCompactionTaskNumLimit=1000;
-	
+
 	private static String IMPALA_USER_DIRECTORY = "/user/impala";
-	
+
 	private static String HADOOP_USER_NAME = "HADOOP_USER_NAME";
-	
+
 	private static String IMPAlA = "impala";
+
+	private Boolean hdfs_checked = false;
 
 
 	public CompactionManager(String config) throws IOException, ClassNotFoundException, SQLException {
@@ -68,9 +74,9 @@ public class CompactionManager {
 		compactionStatus = new LinkedHashMap<String, CompactionStatus>(defaultCompactionTaskNumLimit) {
 			private static final long serialVersionUID = 1L;
 			@Override protected boolean removeEldestEntry(Map.Entry<String, CompactionStatus> entry) {
-				    return size() > defaultCompactionTaskNumLimit;
-				  }
-				}; 
+				return size() > defaultCompactionTaskNumLimit;
+			}
+		}; 
 		loadContexts();
 		logger.info("Compaction manager initialized!");
 	}
@@ -91,40 +97,59 @@ public class CompactionManager {
 		}	
 	}
 
+	private void checkHdfs() throws IOException{
+		if(!hdfs_checked){
+			System.setProperty(HADOOP_USER_NAME, IMPAlA);
+			HdfsClient dfs = new HdfsClient(hdfsConnection);
+			if(!dfs.checkDir(IMPALA_USER_DIRECTORY)){
+				logger.warn("impala home directory not exist, creating...");
+				dfs.mkDir(IMPALA_USER_DIRECTORY);
+				logger.info("impala home directory created");
+			}
+
+			String tmpTableLocationPath = tmpTableLocation.replace(hdfsConnection, "");
+			if(!dfs.checkDir(tmpTableLocationPath)){
+				logger.warn("temperory table directory not exist, creating...");
+				dfs.mkDir(tmpTableLocationPath);
+				logger.info("temperory table directory: "+tmpTableLocationPath+" created ");
+			}
+
+			if(!dfs.checkDir(IMPALA_USER_DIRECTORY)){
+				logger.warn("impala home directory not exist, creating...");
+				dfs.mkDir(IMPALA_USER_DIRECTORY);
+			}
+			dfs.close();
+		}
+
+		hdfs_checked = true;
+
+	}
+
 	private void loadConfig(Properties prop) throws IOException, ClassNotFoundException, SQLException {
-		
-		String hdfsConnection = prop.getProperty(HdfsClient.HDFS_CONNECTION_NAME);
-		System.setProperty(HADOOP_USER_NAME, IMPAlA);
-		HdfsClient dfs = new HdfsClient(hdfsConnection);
-		if(!dfs.checkDir(IMPALA_USER_DIRECTORY)){
-			logger.warn("impala home directory not exist, creating...");
-			dfs.mkDir(IMPALA_USER_DIRECTORY);
-			logger.info("impala home directory created");
-		}
+
+		hdfsConnection = prop.getProperty(HdfsClient.HDFS_CONNECTION_NAME);
+
 		tmpTableLocation = prop.getProperty("tmpTableLocation");
-		String tmpTableLocationPath = tmpTableLocation.replace(hdfsConnection, "");
-		if(!dfs.checkDir(tmpTableLocationPath)){
-			logger.warn("temperory table directory not exist, creating...");
-			dfs.mkDir(tmpTableLocationPath);
-			logger.info("temperory table directory: "+tmpTableLocationPath+" created ");
-		}
-		
-		if(!dfs.checkDir(IMPALA_USER_DIRECTORY)){
-			logger.warn("impala home directory not exist, creating...");
-			dfs.mkDir(IMPALA_USER_DIRECTORY);
-		}
-		
-		dfs.close();
-		
-		String connectionUrl = prop.getProperty("connectionUrl");
-		String jdbcDriverName = prop.getProperty("jdbcDriverName");
-		client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
+
+
+		connectionUrl = prop.getProperty("connectionUrl");
+		jdbcDriverName = prop.getProperty("jdbcDriverName");
+		//client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
 		stateFileLocation = prop.getProperty("stateFiles");
-		
+
 		logger.info("state file location: "+stateFileLocation);
 		logger.info("connection Url: "+connectionUrl);
 
 
+	}
+	
+	private void initJdbcIfNotExist() throws IOException, SQLException{
+		if(client == null)
+			try {
+				client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
+			} catch (ClassNotFoundException e) {
+				throw new IOException(e);
+			}
 	}
 
 	private String readFile(Path path) throws IOException {
@@ -169,6 +194,8 @@ public class CompactionManager {
 	}
 
 	public synchronized void addTable(String tableName) throws SQLException, IOException{
+		checkHdfs();
+		initJdbcIfNotExist();
 		if(managedTables.containsKey(tableName)){
 			String message =tableName + " table already managed by compaction manger!"; 
 			logger.error(message);
@@ -190,6 +217,7 @@ public class CompactionManager {
 
 
 	public  List<String> listTables() throws SQLException, IOException{
+		initJdbcIfNotExist();
 		List<String> tables = new ArrayList<String>();
 		tables.addAll(managedTables.keySet());
 		return tables;
@@ -197,6 +225,7 @@ public class CompactionManager {
 
 
 	public  CompactionContext getTableContext(String tableName) throws SQLException{
+		
 		tableExistCheck(tableName);
 		return managedTables.get(tableName);
 	}
@@ -205,7 +234,7 @@ public class CompactionManager {
 		tableExistCheck(tableName);
 		return managedTables.get(tableName).getState().toString();
 	}
-	
+
 	public CompactionStatus getCompactionStatus(String id){
 		CompactionStatus cs =  compactionStatus.get(id);
 		if(cs == null){
@@ -217,7 +246,9 @@ public class CompactionManager {
 	}
 
 	public synchronized void runNext(String tableName) throws SQLException, IOException, InterruptedException {
+		
 		tableExistCheck(tableName);
+		initJdbcIfNotExist();
 		CompactionContext context = managedTables.get(tableName);
 		if (context.getState().equals(CompactionContext.States.StateI))
 			SwitchLandingTable.run(context);
@@ -238,8 +269,9 @@ public class CompactionManager {
 	}
 
 	public synchronized CompactionStatus compaction(String tableName) throws SQLException, IOException, InterruptedException {
-
+		checkHdfs();
 		tableExistCheck(tableName);
+		initJdbcIfNotExist();
 		if(!getTableState(tableName).equals(CompactionContext.States.StateI.toString())){
 			String message =tableName + " is not in normal state, please wait or recover"; 
 			logger.error(message);
@@ -271,7 +303,7 @@ public class CompactionManager {
 			}
 		};
 		thread.start();
-		
+
 		//return newLandingTable;
 		return cs;
 	}
@@ -281,7 +313,7 @@ public class CompactionManager {
 	public void recover(String tableName) throws SQLException, IOException, InterruptedException {
 
 		tableExistCheck(tableName);
-
+		initJdbcIfNotExist();
 		int stepNum = CompactionContext.States.values().length;
 		for (int i = 0; i < stepNum; i++) {
 			runNext(tableName);
@@ -291,7 +323,8 @@ public class CompactionManager {
 	}
 
 	public synchronized void close() throws SQLException{
-		client.close();
+		if(client!=null)
+			client.close();
 	}
 
 	public String getLandingTable(String tableName) throws SQLException{
@@ -310,13 +343,12 @@ public class CompactionManager {
 		return loadingStatus.get(tableName);
 	}
 
-	public  void load(String tableName) throws SQLException{
+	public  void load(String tableName) throws SQLException, IOException{
 		tableExistCheck(tableName);
+		checkHdfs();
 		loadingStatus.put(tableName, true);
 		String landingTable = managedTables.get(tableName).getLandingTable().getName();
-
 		client.recoverPartition(landingTable);
-
 		client.refresh(landingTable);
 		loadingStatus.put(tableName, false);
 	}
@@ -334,7 +366,7 @@ public class CompactionManager {
 		client.dropView(view2);
 
 	}
-	
+
 	public static void main(String args[]){
 
 	}
