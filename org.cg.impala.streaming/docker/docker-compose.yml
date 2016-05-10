@@ -1,0 +1,58 @@
+
+version: '2'
+services:
+    compaction:
+       build .
+       hostname: compaction
+       depends_on: 
+        - "hadoop"
+       entrypoint: /opt/compactionServer/server-start.sh
+       network_mode: bridge       
+       extra_hosts:
+        - "quickstart.cloudera:192.168.99.100"
+       ports:
+        - "7171:7171"
+
+    hadoop:
+       image: sszxdxs/cdh5.7
+       hostname: quickstart.cloudera
+       privileged: true
+       entrypoint: 
+        - /usr/bin/docker-quickstart
+        - spark 
+        - alive
+       network_mode: bridge
+       ports:
+        - "9000:9000"
+        - "50010:50010"
+        - "50020:50020"
+        - "50070:50070"
+        - "50075:50075"
+        - "50090:50090"
+        - "19888:19888"
+        - "8030:8030"
+        - "8031:8031"
+        - "8032:8032"
+        - "8033:8033"
+        - "8040:8040"
+        - "8042:8042"
+        - "8088:8088"
+        - "49707:49707"
+        - "8888:8888"
+        - "21050:21050"
+        - "8020:8020"
+ 
+        
+    kafka:
+       image: sszxdxs/kafka
+       hostname: kafka
+       environment:
+           ADVERTISED_HOST: "192.168.99.100"
+           ADVERTISED_PORT: "9092"
+           KAFKA_CREATE_TOPICS: "idEvent:1:5"
+       network_mode: bridge
+       ports:
+           - "2181:2181"
+           - "9092:9092"
+
+       
