@@ -2,7 +2,7 @@
 version: '2'
 services:
     compaction:
-       build .
+       build: .
        hostname: compaction
        depends_on: 
         - "hadoop"
