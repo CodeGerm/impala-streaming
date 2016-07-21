@@ -15,9 +15,11 @@ public class SyncTwoPersistTable {
 	private static final Log logger = LogFactory.getLog(SyncTwoPersistTable.class);
 
 	public static void run(ImpalaJDBCClient client, CompactionContext context) throws SQLException, IOException{
-		
+	
 		client.recoverPartition(context.getStore_table1().getName());
-		client.updateStats(context.getStore_table1().getName());
+		client.refresh(context.getStore_table2().getName());
+		//This would cause performance issue
+		//client.updateStats(context.getStore_table1().getName());
 		context.setState(CompactionContext.States.StateVII);
 		context.saveState();
 		logger.info("StateVI to StateVII transition finished");

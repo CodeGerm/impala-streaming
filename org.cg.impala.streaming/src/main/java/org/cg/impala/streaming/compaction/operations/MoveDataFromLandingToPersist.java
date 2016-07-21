@@ -20,7 +20,8 @@ public class MoveDataFromLandingToPersist {
 		client.compaction(context.getLandingTable1().getName(), context.getStore_table2().getName());
 		
 		//Update the row count stats
-		client.updateStats(context.getStore_table2().getName());
+		//This would cause performance issue
+		//client.updateStats(context.getStore_table2().getName());
 		context.setState(CompactionContext.States.StateIII);
 		context.saveState();
 		logger.info("StateII to StateIII transition finished");
