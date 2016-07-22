@@ -4,6 +4,11 @@ services:
     compaction:
        build: .
        hostname: compaction
+       environment: 
+       	- service_port=7171
+       	- impala_url=quickstart.cloudera
+       	- tmp_table_dir=hdfs://quickstart.cloudera:8020/user/impala/tmpTables
+       	- hdfs_url=quickstart.cloudera:8020
        depends_on: 
         - "hadoop"
        entrypoint: /opt/compactionServer/server-start.sh
