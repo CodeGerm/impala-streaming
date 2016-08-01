@@ -366,6 +366,11 @@ public class CompactionManager {
 		client.dropView(view2);
 
 	}
+	
+	public synchronized void runUpdateSql(String sql) throws SQLException, IOException{
+		initJdbcIfNotExist();
+		client.runUpdateStatement(sql);
+	}
 
 	public static void main(String args[]){
 

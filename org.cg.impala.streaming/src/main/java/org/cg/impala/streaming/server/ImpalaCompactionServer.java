@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -19,7 +20,8 @@ import com.typesafe.config.ConfigFactory;
 import akka.actor.ActorSystem;
 
 import akka.http.javadsl.marshallers.jackson.Jackson;
-
+import akka.http.javadsl.model.HttpEntity;
+import akka.http.javadsl.model.RequestEntity;
 import akka.http.javadsl.server.Handler;
 import akka.http.javadsl.server.Handler1;
 import akka.http.javadsl.server.HttpApp;
@@ -31,6 +33,8 @@ import akka.http.javadsl.server.RouteResult;
 import akka.http.javadsl.server.Unmarshallers;
 import akka.http.javadsl.server.values.Parameter;
 import akka.http.javadsl.server.values.Parameters;
+import akka.stream.javadsl.Sink;
+import akka.util.ByteString;
 
 
 
@@ -312,8 +316,29 @@ public class ImpalaCompactionServer extends HttpApp {
 				return ctx.completeAs(Jackson.json(), isLoading);
 			}
 		};
+		
+		Handler runSqlHandler = new Handler() {
+			private static final long serialVersionUID = 1L;
+
+
+			public RouteResult apply(RequestContext ctx) {
+				String entity = null;
+
+				try {
+					entity = ctx.request().entity().toStrict(1000, ctx.materializer()).toCompletableFuture().get().getData().utf8String();
+					compactionManager.runUpdateSql(entity);
+				} catch (InterruptedException | ExecutionException | SQLException | IOException e) {
+					return ctx.complete(Responses.BadRequestResponse(e));
+				}
+			
+				return ctx.completeAs(Jackson.json(), entity);
+			}
+		};
+		
+		
 
 		return route(
+				
 				// matches the empty path
 				pathSingleSlash().route(get(complete("Impala Compaction Service"))),
 
@@ -328,7 +353,11 @@ public class ImpalaCompactionServer extends HttpApp {
 				path("next").route(post(handleWith1(table, goNextHandler))),
 				path("compaction").route(post(handleWith1(table, compactionHandler))),
 				path("recover").route(post(handleWith1(table, recoverHandler))),
+				
+				path("runsql").route(post(handleWith(runSqlHandler))),
+				
 				path("load").route(post(handleWith1(table, loadHandler))));
+				
 	}
 
 	public static void main(String[] args) throws IOException {
