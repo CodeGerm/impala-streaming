@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 
+import org.cg.impala.streaming.HdfsClient;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -26,7 +28,7 @@ public class CompactionContext {
 	private Table store_table2;
 
 	private States state;
-	
+
 	private String stateFilePath;
 
 	public static enum States {
@@ -43,8 +45,8 @@ public class CompactionContext {
 		Table tmpStoreTable = this.store_table1;
 		this.store_table1 = this.store_table2;
 		this.store_table2 = tmpStoreTable;
-		
-		
+
+
 	}
 
 	public View getView() {
@@ -110,16 +112,24 @@ public class CompactionContext {
 	public void setState(States state) {
 		this.state = state;
 	}
-	
-	
+
+
 	public void saveState() throws IOException {
-		
+
 		Gson gson =new GsonBuilder().setPrettyPrinting().create();
 		String objectString = gson.toJson(this);
-		File stateFile = new File(stateFilePath);
-		FileWriter fw =new FileWriter(stateFile, false);
-		fw.write(objectString);
-		fw.close();
+		if(stateFilePath.toLowerCase().startsWith("hdfs")){
+			System.setProperty("HADOOP_USER_NAME", "impala");
+			String url = HdfsClient.getUrlFromPath(stateFilePath);
+			String path = stateFilePath.replace(url, "");
+			HdfsClient dfs = new HdfsClient(url);
+			dfs.writeFile(path, objectString);
+		} else {
+			File stateFile = new File(stateFilePath);
+			FileWriter fw =new FileWriter(stateFile, false);
+			fw.write(objectString);
+			fw.close();
+		}
 
 	}
 
@@ -138,9 +148,9 @@ public class CompactionContext {
 	public void setStore_table2(Table store_table2) {
 		this.store_table2 = store_table2;
 	}
-	
+
 	public CompactionContext(){
-		
+
 	}
 
 	public CompactionContext(View view, View view1, View view2, Table exposed_landing_table, Table landing_table1,

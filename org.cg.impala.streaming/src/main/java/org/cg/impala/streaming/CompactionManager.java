@@ -48,9 +48,9 @@ public class CompactionManager {
 	private String tmpTableLocation;
 
 	private String hdfsConnection;
-	
+
 	private String connectionUrl;
-	
+
 	private String jdbcDriverName;
 
 	private Gson gson;
@@ -135,14 +135,13 @@ public class CompactionManager {
 		connectionUrl = prop.getProperty("connectionUrl");
 		jdbcDriverName = prop.getProperty("jdbcDriverName");
 		//client = new ImpalaJDBCClient(connectionUrl, jdbcDriverName);
-		stateFileLocation = prop.getProperty("stateFiles");
-
+		stateFileLocation = prop.getProperty("stateFilesDir");
 		logger.info("state file location: "+stateFileLocation);
 		logger.info("connection Url: "+connectionUrl);
 
 
 	}
-	
+
 	private void initJdbcIfNotExist() throws IOException, SQLException{
 		if(client == null)
 			try {
@@ -157,41 +156,75 @@ public class CompactionManager {
 		return new String(encoded);
 	}
 
-	private void loadContexts() {
-		File stateFileDir = new File(stateFileLocation);
-
-		// if the directory does not exist, create it
-		if (!stateFileDir.exists()) {
-			logger.info("Creating state files' directory: " + stateFileLocation);
-			stateFileDir.mkdir();
-		} else {
-			if (!stateFileDir.isDirectory())
-				throw new IllegalStateException("State file dir is not a directory");
-			File[] listOfFiles = stateFileDir.listFiles();
-			for (File file : listOfFiles) {
-				if (file.isFile()) {
+	private void loadContexts() throws IOException {
+		
+		if(stateFileLocation.toLowerCase().startsWith("hdfs")){
+			System.setProperty(HADOOP_USER_NAME, IMPAlA);
+			String url = HdfsClient.getUrlFromPath(stateFileLocation);
+			String stateFileLocationPath = stateFileLocation.replace(url, "");
+			HdfsClient dfs = new HdfsClient(url);
+			if(!dfs.checkDir(stateFileLocationPath)){
+				logger.info("state files' directory doesn't exist, creating");
+				dfs.mkDir(stateFileLocationPath);
+				logger.info("state files' directory created");
+			} else {
+				String [] files = dfs.listFiles(stateFileLocationPath);
+				for(String file: files){
 					String json;
 					try {
-						json = readFile(file.toPath());
+						json = dfs.readFile(stateFileLocationPath+"/"+file);
 						CompactionContext context = gson.fromJson(json, CompactionContext.class);
 						String tableName = null;
-						if(file.getName().contains(".")){
-							String [] content = file.getName().split("\\.");
+						if(file.contains(".")){
+							String [] content = file.split("\\.");
 							tableName = content[0];
 						} else {
-							tableName = file.getName();
+							tableName = file;
 						}
 						managedTables.put(tableName, context);
-
 					} catch (IOException e) {
-						logger.error("can't load state context from file " + file.getName(), e);
+						logger.error("can't load state context from file " + file, e);
 					}
+				}
+				
+			}
+		} else {
+			File stateFileDir = new File(stateFileLocation);
+			// if the directory does not exist, create it
+			if (!stateFileDir.exists()) {
+				logger.info("Creating state files' directory: " + stateFileLocation);
+				stateFileDir.mkdir();
+			} else {
+				if (!stateFileDir.isDirectory())
+					throw new IllegalStateException("State file dir is not a directory");
+				File[] listOfFiles = stateFileDir.listFiles();
+				for (File file : listOfFiles) {
+					if (file.isFile()) {
+						String json;
+						try {
+							json = readFile(file.toPath());
+							CompactionContext context = gson.fromJson(json, CompactionContext.class);
+							String tableName = null;
+							if(file.getName().contains(".")){
+								String [] content = file.getName().split("\\.");
+								tableName = content[0];
+							} else {
+								tableName = file.getName();
+							}
+							managedTables.put(tableName, context);
+
+						} catch (IOException e) {
+							logger.error("can't load state context from file " + file.getName(), e);
+						}
+					}
+
 				}
 
 			}
-
 		}
 	}
+	
+	
 
 	public synchronized void addTable(String tableName) throws SQLException, IOException{
 		checkHdfs();
@@ -225,7 +258,7 @@ public class CompactionManager {
 
 
 	public  CompactionContext getTableContext(String tableName) throws SQLException{
-		
+
 		tableExistCheck(tableName);
 		return managedTables.get(tableName);
 	}
@@ -246,7 +279,7 @@ public class CompactionManager {
 	}
 
 	public synchronized void runNext(String tableName) throws SQLException, IOException, InterruptedException {
-		
+
 		tableExistCheck(tableName);
 		initJdbcIfNotExist();
 		CompactionContext context = managedTables.get(tableName);
@@ -366,7 +399,7 @@ public class CompactionManager {
 		client.dropView(view2);
 
 	}
-	
+
 	public synchronized void runUpdateSql(String sql) throws SQLException, IOException{
 		initJdbcIfNotExist();
 		client.runUpdateStatement(sql);
